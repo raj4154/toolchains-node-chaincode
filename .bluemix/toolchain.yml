@@ -1,0 +1,44 @@
+version: 2
+template:
+  name: Develop a Blockchain app with IBM Blockchain Platform and Hyperledger Fabric
+  description: ows-node-cc-pipeline
+  required:
+  - chaincode-repo
+toolchain:
+  name: ows-node-cc-pipeline
+services:
+  chaincode-repo:
+    parameters:
+      extra_capabilities:
+      - capability_id: git.issues
+        display_name: Issues
+        dashboard_url: https://github.ibm.com/gbsbc-sp-globalobr/chaincode/issues
+        label: chaincode
+        tags:
+        - think
+        - code
+        enabled: false
+        readme: false
+      label: chaincode
+      type: link
+      repo_name: chaincode
+      repo_url: https://github.ibm.com/COVID-19-Vaccine-Visibility/EPCIS-Chaincode.git
+      private_repo: true
+      has_issues: false
+      enable_traceability: false
+      legal_label: ""
+      legal: true
+      namespace_table: ""
+      git_id: integrated
+    service_id: github_integrated
+  chaincode-build:
+    parameters:
+      type: classic
+      name: cc-node-ows
+      ui-pipeline: true
+      configuration:
+        content:
+          $text: pipeline_chaincode-build.yml
+      services:
+      - chaincode-repo
+    service_id: pipeline

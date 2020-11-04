@@ -1,0 +1,333 @@
+stages:
+- inputs:
+  - branch: development
+    dir_name: null
+    type: git
+    service: chaincode-repo
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: Prepare
+    script: |-
+      #!/bin/bash
+      set -ex
+
+      # move chaincode git repo to separate directory
+      if [ -n "$CC_REPO_DIR" ]; then
+        chaincode_files=`ls`
+        mkdir $CC_REPO_DIR
+        mv -f $chaincode_files "$CC_REPO_DIR"
+      fi
+
+      if [ -n "$BUILD_LIB_URL" ]; then
+        echo "=> Downloading Blockchain Build Libraries..."
+        # download blockchain-build-lib
+        build_lib_dir=$(mktemp -d)
+        mkdir -p "$SCRIPT_DIR"
+
+        #(curl -fsSL "$BUILD_LIB_URL") > "$build_lib_dir/build-lib.tgz"
+        #tar --keep-old-files -xvzf "$build_lib_dir/build-lib.tgz" -C "$SCRIPT_DIR" --strip-components 2 > /dev/null 2>&1 || true
+
+        git clone -b v2 "$BUILD_LIB_URL" "$SCRIPT_DIR" > /dev/null 2>&1 || true
+      fi
+
+      if [ -n "$FABRIC_CLI_URL" ]; then
+        echo "=> Downloading Fabric-CLI..."
+        # download fabric-cli
+        fabric_cli_dir=$(mktemp -d)
+        mkdir -p "$FABRIC_CLI_DIR"
+
+        (curl -fsSL "$FABRIC_CLI_URL") > "$fabric_cli_dir/fabric-cli.tgz"
+        tar --keep-old-files -xvzf "$fabric_cli_dir/fabric-cli.tgz" -C "$FABRIC_CLI_DIR" --strip-components 1 > /dev/null 2>&1 || true
+
+        # git clone "$FABRIC_CLI_URL" "$FABRIC_CLI_DIR" > /dev/null 2>&1 || true
+      fi
+
+      # Propogate commit hash downstream
+      echo "GIT_COMMIT_HASH=${GIT_COMMIT:0:8}" >> build.properties
+    type: builder
+  name: PREPARE
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/
+  - name: BUILD_LIB_URL
+    type: text
+    value: https://github.com/huytran1ibm/build-lib.git
+  - name: CC_REPO_DIR
+    type: text
+    value: ./chaincode-repo/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  - name: FABRIC_CLI_URL
+    type: text
+    value: https://github.com/IBM-Blockchain-Starter-Kit/fabric-cli/archive/v1.4.2.tar.gz
+  triggers:
+  - events: '{"push":true,"pull_request":false,"pull_request_closed":false}'
+    type: git
+- inputs:
+  - dir_name: null
+    job: Prepare
+    stage: PREPARE
+    type: job
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: Build Chaincode
+    script: |-
+      #!/bin/bash -x
+      # script defined in chaincode project
+      source "${SCRIPT_DIR}router.sh" build "${PLATFORM}"
+
+      echo "$CC_VERSION_OVERRIDE"
+    type: builder
+  name: BUILD
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  triggers:
+  - type: stage
+- inputs:
+  - dir_name: null
+    job: Build Chaincode
+    stage: BUILD
+    type: job
+  jobs:
+  - name: Test
+    script: |-
+      #!/bin/bash -x
+      source "${SCRIPT_DIR}/router.sh" test "${PLATFORM}"
+    test_type: simple
+    type: tester
+  name: TEST
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: ADMIN_IDENTITY_STRING
+    type: text
+    value: ''
+  - name: CONNECTION_PROFILE_STRING
+    type: text
+    value: ''
+  triggers:
+  - type: stage
+- inputs:
+  - dir_name: null
+    job: Build Chaincode
+    stage: BUILD
+    type: job
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: package chaincode
+    script: |
+      #!/bin/bash -x
+      source build.properties
+      export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
+      #This is to override cc_name but will be overrided by router
+      #echo "$( jq '.spglobal1.chaincode[0].name = "junkB15"' chaincode-repo/deploy_config.json )" > chaincode-repo/deploy_config.json
+      source "${SCRIPT_DIR}/router.sh" package "${PLATFORM}"
+    type: builder
+  name: Package CC
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  - name: BLOCKCHAIN_SERVICE_INSTANCE
+    type: text
+    value: ${BLOCKCHAIN_SERVICE_INSTANCE}
+  - name: CLOUDANT_SERVICE_INSTANCE
+    type: text
+    value: ${CLOUDANT_SERVICE_INSTANCE}
+  - name: REGION_ID
+    type: text
+    value: ${REGION_ID}
+  triggers:
+  - type: stage
+- inputs:
+  - dir_name: null
+    job: package chaincode
+    stage: Package CC
+    type: job
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: install and approve cc
+    script: |
+      #!/bin/bash -x
+      ## save seq number from build for approval and commit
+      #echo "CC_SEQUENCE=${CC_SEQUENCE_OVERRIDE}" >> build.properties
+      source build.properties
+      export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
+      #export CC_SEQUENCE=2
+      set -x
+      source "${SCRIPT_DIR}/router.sh" install_approve "${PLATFORM}"
+    type: builder
+  name: Install and Approve
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  - name: BLOCKCHAIN_SERVICE_INSTANCE
+    type: text
+    value: ${BLOCKCHAIN_SERVICE_INSTANCE}
+  - name: CLOUDANT_SERVICE_INSTANCE
+    type: text
+    value: ${CLOUDANT_SERVICE_INSTANCE}
+  - name: REGION_ID
+    type: text
+    value: ${REGION_ID}
+  triggers:
+  - type: stage
+- inputs:
+  - dir_name: null
+    job: package chaincode
+    stage: Package CC
+    type: job
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: install and approve cc
+    script: |
+      #!/bin/bash -x
+      ## save seq number from build for approval and commit
+      #echo "CC_SEQUENCE=${CC_SEQUENCE_OVERRIDE}" >> build.properties
+      source build.properties
+      export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
+      #export CC_SEQUENCE=2
+
+      source "${SCRIPT_DIR}/router.sh" install_approve "${PLATFORM}"
+    type: builder
+  name: Install and Approve Other Org
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  - name: BLOCKCHAIN_SERVICE_INSTANCE
+    type: text
+    value: ${BLOCKCHAIN_SERVICE_INSTANCE}
+  - name: CLOUDANT_SERVICE_INSTANCE
+    type: text
+    value: ${CLOUDANT_SERVICE_INSTANCE}
+  - name: REGION_ID
+    type: text
+    value: ${REGION_ID}
+  - name: ADMIN_IDENTITY_STRING
+    type: text
+    value: ''
+  - name: CONNECTION_PROFILE_STRING
+    type: text
+    value: ''
+  - name: ORDERERS_LIST_JSON_STRING
+    type: text
+    value: ''
+  triggers:
+  - type: stage
+- inputs:
+  - dir_name: null
+    job: install and approve cc
+    stage: Install and Approve
+    type: job
+  jobs:
+  - artifact_dir: ""
+    build_type: shell
+    name: check and commit cc
+    script: |
+      #!/bin/bash -x
+      #export CC_SEQUENCE_OVERRIDE=2
+      source build.properties
+
+      export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
+      #export CC_SEQUENCE=2
+
+      source "${SCRIPT_DIR}/router.sh" deploy_v2 "${PLATFORM}"
+    type: builder
+  name: Deploy CC
+  permission:
+    execute: TOOLCHAIN_ADMINS
+  properties:
+  - name: PLATFORM
+    type: text
+    value: js
+  - name: SCRIPT_DIR
+    type: text
+    value: ./scripts/src/
+  - name: FABRIC_CLI_DIR
+    type: text
+    value: ./fabric-cli/
+  - name: BLOCKCHAIN_SERVICE_INSTANCE
+    type: text
+    value: ${BLOCKCHAIN_SERVICE_INSTANCE}
+  - name: CLOUDANT_SERVICE_INSTANCE
+    type: text
+    value: ${CLOUDANT_SERVICE_INSTANCE}
+  - name: REGION_ID
+    type: text
+    value: ${REGION_ID}
+properties:
+- name: NODE_VERSION
+  type: text
+  value: "10.12"
+- name: HLF_VERSION
+  type: text
+  value: 2.1.1
+- name: BUILD_LIB_URL_TMP
+  type: text
+  value: https://github.com/huytran1ibm/build-lib.git
+- name: CC_VERSION_OVERRIDE
+  type: text
+  value: ${GIT_COMMIT:0:8}
+- name: SIGN_POLICY
+  type: text
+  value: OR('central-spglobal-com.member','central-spglobal-com.admin','central-spglobal-com.client','central-spglobal-com.peer','auditor-spglobal-com.member','auditor-spglobal-com.admin','auditor-spglobal-com.client','auditor-spglobal-com.peer')
+- name: ADMIN_IDENTITY_STRING
+  type: text
+  value: ''
+- name: CONNECTION_PROFILE_STRING
+  type: text
+  value: ''
+- name: ORDERERS_LIST_JSON_STRING
+  type: text
+  value: ''
