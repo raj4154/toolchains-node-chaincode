@@ -28,7 +28,7 @@ stages:
         #(curl -fsSL "$BUILD_LIB_URL") > "$build_lib_dir/build-lib.tgz"
         #tar --keep-old-files -xvzf "$build_lib_dir/build-lib.tgz" -C "$SCRIPT_DIR" --strip-components 2 > /dev/null 2>&1 || true
 
-        git clone -b v2 "$BUILD_LIB_URL" "$SCRIPT_DIR" > /dev/null 2>&1 || true
+        git clone -b "$BUILD_LIB_BRANCH" "$BUILD_LIB_URL" "$SCRIPT_DIR" > /dev/null 2>&1 || true
       fi
 
       if [ -n "$FABRIC_CLI_URL" ]; then
@@ -53,6 +53,9 @@ stages:
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/
+  - name: BUILD_LIB_BRANCH
+    type: text
+    value: v2
   - name: BUILD_LIB_URL
     type: text
     value: https://github.com/huytran1ibm/build-lib.git
@@ -88,9 +91,6 @@ stages:
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
@@ -115,18 +115,9 @@ stages:
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
-  - name: ADMIN_IDENTITY_STRING
-    type: text
-    value: ''
-  - name: CONNECTION_PROFILE_STRING
-    type: text
-    value: ''
   triggers:
   - type: stage
 - inputs:
@@ -142,17 +133,12 @@ stages:
       #!/bin/bash -x
       source build.properties
       export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
-      #This is to override cc_name but will be overrided by router
-      #echo "$( jq '.spglobal1.chaincode[0].name = "junkB15"' chaincode-repo/deploy_config.json )" > chaincode-repo/deploy_config.json
       source "${SCRIPT_DIR}/router.sh" package "${PLATFORM}"
     type: builder
   name: Package CC
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
@@ -181,11 +167,12 @@ stages:
     name: install and approve cc
     script: |
       #!/bin/bash -x
-      ## save seq number from build for approval and commit
-      #echo "CC_SEQUENCE=${CC_SEQUENCE_OVERRIDE}" >> build.properties
+      ## Override Install CC on peer, used incase stage fails but cc installed successfully
+      INSTALL_OVERRIDE_SKIP=false
+      ## Override SEQ number
+      #CC_SEQUENCE_OVERRIDE=
       source build.properties
       export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
-      #export CC_SEQUENCE=2
       set -x
       source "${SCRIPT_DIR}/router.sh" install_approve "${PLATFORM}"
     type: builder
@@ -193,9 +180,6 @@ stages:
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
@@ -224,21 +208,19 @@ stages:
     name: install and approve cc
     script: |
       #!/bin/bash -x
-      ## save seq number from build for approval and commit
-      #echo "CC_SEQUENCE=${CC_SEQUENCE_OVERRIDE}" >> build.properties
+      ## Override Install CC on peer, used incase stage fails but cc installed successfully
+      INSTALL_OVERRIDE_SKIP=false
+      ## Override SEQ number
+      #CC_SEQUENCE_OVERRIDE=
       source build.properties
       export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
-      #export CC_SEQUENCE=2
-
+      set -x
       source "${SCRIPT_DIR}/router.sh" install_approve "${PLATFORM}"
     type: builder
   name: Install and Approve Other Org
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
@@ -276,11 +258,11 @@ stages:
     name: check and commit cc
     script: |
       #!/bin/bash -x
+      ## Override SEQ number
       #export CC_SEQUENCE_OVERRIDE=2
       source build.properties
 
       export CC_VERSION_OVERRIDE=$GIT_COMMIT_HASH
-      #export CC_SEQUENCE=2
 
       source "${SCRIPT_DIR}/router.sh" deploy_v2 "${PLATFORM}"
     type: builder
@@ -288,9 +270,6 @@ stages:
   permission:
     execute: TOOLCHAIN_ADMINS
   properties:
-  - name: PLATFORM
-    type: text
-    value: js
   - name: SCRIPT_DIR
     type: text
     value: ./scripts/src/
@@ -307,13 +286,16 @@ stages:
     type: text
     value: ${REGION_ID}
 properties:
+- name: PLATFORM
+  type: text
+  value: js
 - name: NODE_VERSION
   type: text
   value: "10.12"
 - name: HLF_VERSION
   type: text
   value: 2.1.1
-- name: BUILD_LIB_URL_TMP
+- name: BUILD_LIB_URL
   type: text
   value: https://github.com/huytran1ibm/build-lib.git
 - name: CC_VERSION_OVERRIDE
