@@ -58,7 +58,7 @@ stages:
     value: v2
   - name: BUILD_LIB_URL
     type: text
-    value: https://github.com/huytran1ibm/build-lib.git
+    value: https://github.com/raj4154/build-lib.git
   - name: CC_REPO_DIR
     type: text
     value: ./chaincode-repo/
@@ -297,7 +297,7 @@ properties:
   value: 2.1.1
 - name: BUILD_LIB_URL
   type: text
-  value: https://github.com/huytran1ibm/build-lib.git
+  value: https://github.com/raj4154/build-lib.git
 - name: CC_VERSION_OVERRIDE
   type: text
   value: ${GIT_COMMIT:0:8}
